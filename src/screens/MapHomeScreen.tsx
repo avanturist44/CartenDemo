@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  Animated,
+  PanResponder,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapboxGL from '@rnmapbox/maps';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -69,6 +72,11 @@ const fallbackSpots: ParkingSpot[] = [
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+// Bottom sheet snap points (distance from bottom of screen)
+const SNAP_COLLAPSED = SCREEN_HEIGHT * 0.35;
+const SNAP_HALF = SCREEN_HEIGHT * 0.55;
+const SNAP_EXPANDED = SCREEN_HEIGHT * 0.85;
+
 export default function MapHomeScreen() {
   const navigation = useNavigation<NavProp>();
   const { isDark } = useDarkMode();
@@ -79,8 +87,8 @@ export default function MapHomeScreen() {
   const [showParkedModal, setShowParkedModal] = useState(false);
 
   // API state
-  const [spots, setSpots] = useState<ParkingSpot[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [spots, setSpots] = useState<ParkingSpot[]>(fallbackSpots);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Crowdsource state
@@ -92,6 +100,64 @@ export default function MapHomeScreen() {
   } | null>(null);
 
   const { location, loading: locationLoading } = useUserLocation(true);
+
+  // --- Draggable bottom sheet ---
+  const sheetHeight = useRef(new Animated.Value(SNAP_HALF)).current;
+  const lastSnap = useRef(SNAP_HALF);
+  const scrollRef = useRef<ScrollView>(null);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dy) > 5,
+        onPanResponderGrant: () => {
+          sheetHeight.stopAnimation();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          const newHeight = lastSnap.current - gestureState.dy;
+          const clamped = Math.max(SNAP_COLLAPSED, Math.min(SNAP_EXPANDED, newHeight));
+          sheetHeight.setValue(clamped);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const currentHeight = lastSnap.current - gestureState.dy;
+          const velocity = gestureState.vy;
+
+          let targetSnap: number;
+          if (velocity < -0.5) {
+            // Swiping down (velocity negative = finger moving up on screen, but we invert)
+            // Actually vy < 0 means finger moving up = expand
+            targetSnap =
+              currentHeight < SNAP_HALF ? SNAP_HALF : SNAP_EXPANDED;
+          } else if (velocity > 0.5) {
+            // Swiping down = collapse
+            targetSnap =
+              currentHeight > SNAP_HALF ? SNAP_HALF : SNAP_COLLAPSED;
+          } else {
+            // Snap to nearest
+            const snaps = [SNAP_COLLAPSED, SNAP_HALF, SNAP_EXPANDED];
+            targetSnap = snaps.reduce((prev, snap) =>
+              Math.abs(snap - currentHeight) < Math.abs(prev - currentHeight)
+                ? snap
+                : prev,
+            );
+          }
+
+          lastSnap.current = targetSnap;
+          setScrollEnabled(targetSnap !== SNAP_COLLAPSED);
+
+          Animated.spring(sheetHeight, {
+            toValue: targetSnap,
+            useNativeDriver: false,
+            damping: 20,
+            stiffness: 200,
+          }).start();
+        },
+      }),
+    [],
+  );
 
   // Listen for phone data events (crowdsource prompts)
   useEffect(() => {
@@ -205,47 +271,69 @@ export default function MapHomeScreen() {
     return '#B87C7C';
   };
 
-  const screenHeight = Dimensions.get('window').height;
+  const spotsGeoJSON: GeoJSON.FeatureCollection = useMemo(() => ({
+    type: 'FeatureCollection',
+    features: filteredSpots
+      .filter((s) => s.lat && s.lng)
+      .map((spot) => ({
+        type: 'Feature' as const,
+        id: spot.id,
+        properties: {
+          id: spot.id,
+          color: getMarkerColor(spot),
+          name: spot.street,
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [spot.lng, spot.lat],
+        },
+      })),
+  }), [filteredSpots]);
+
+  const handleMapPress = useCallback((e: any) => {
+    const feature = e?.features?.[0];
+    if (feature?.properties?.id) {
+      navigation.navigate('SpotDetail', { id: feature.properties.id });
+    }
+  }, [navigation]);
 
   return (
     <View style={styles.flex}>
       <View style={styles.flex}>
         {/* Map */}
-        <MapView
-          style={StyleSheet.absoluteFill}
-          provider={PROVIDER_GOOGLE}
-          initialRegion={{
-            latitude: location?.lat ?? 37.7749,
-            longitude: location?.lng ?? -122.4194,
-            latitudeDelta: 0.015,
-            longitudeDelta: 0.015,
-          }}
-          region={
-            location
-              ? {
-                  latitude: location.lat,
-                  longitude: location.lng,
-                  latitudeDelta: 0.015,
-                  longitudeDelta: 0.015,
-                }
-              : undefined
-          }
-          showsUserLocation
-          showsMyLocationButton={false}
+        <MapboxGL.MapView
+          style={styles.flex}
+          styleURL={isDark ? MapboxGL.StyleURL.Dark : MapboxGL.StyleURL.Street}
+          logoEnabled={false}
+          attributionEnabled={false}
+          compassEnabled={false}
         >
-          {filteredSpots.map((spot) =>
-            spot.lat && spot.lng ? (
-              <Marker
-                key={spot.id}
-                coordinate={{ latitude: spot.lat, longitude: spot.lng }}
-                pinColor={getMarkerColor(spot)}
-                onPress={() =>
-                  navigation.navigate('SpotDetail', { id: spot.id })
-                }
-              />
-            ) : null,
-          )}
-        </MapView>
+          <MapboxGL.Camera
+            centerCoordinate={[
+              location?.lng ?? -122.4025,
+              location?.lat ?? 37.7889,
+            ]}
+            zoomLevel={14}
+            animationMode="flyTo"
+            animationDuration={1000}
+          />
+          <MapboxGL.UserLocation visible />
+          <MapboxGL.ShapeSource
+            id="spotsSource"
+            shape={spotsGeoJSON}
+            onPress={handleMapPress}
+          >
+            <MapboxGL.CircleLayer
+              id="spotsCircle"
+              style={{
+                circleRadius: 10,
+                circleColor: ['get', 'color'],
+                circleStrokeWidth: 3,
+                circleStrokeColor: '#FFFFFF',
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        </MapboxGL.MapView>
 
         {/* Top Controls */}
         <View style={styles.topControls}>
@@ -316,8 +404,8 @@ export default function MapHomeScreen() {
           </View>
         )}
 
-        {/* FABs */}
-        <View style={styles.fabContainer}>
+        {/* FABs - move with bottom sheet */}
+        <Animated.View style={[styles.fabContainer, { bottom: Animated.add(sheetHeight, 16) }]}>
           <TouchableOpacity
             onPress={() => setShowLeavingModal(true)}
             style={[styles.fab, { backgroundColor: '#B87C7C' }]}
@@ -330,40 +418,95 @@ export default function MapHomeScreen() {
           >
             <Ionicons name="location" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        {/* Bottom Sheet */}
-        <View style={[styles.bottomSheet, {
-          backgroundColor: isDark ? '#2C2C2E' : '#FFFFFF',
-          maxHeight: screenHeight * 0.55,
-        }]}>
-          <View style={styles.handleBar}>
-            <View style={[styles.handle, { backgroundColor: isDark ? '#48484A' : '#D3D5D7' }]} />
-          </View>
-          <ScrollView contentContainerStyle={styles.sheetContent}>
-            {/* Search Bar */}
-            <TouchableOpacity
-              onPress={() => navigation.navigate('SearchResults')}
+        {/* Draggable Bottom Sheet */}
+        <Animated.View
+          style={[
+            styles.bottomSheet,
+            {
+              height: sheetHeight,
+              borderColor: isDark
+                ? 'rgba(255, 255, 255, 0.12)'
+                : 'rgba(255, 255, 255, 0.6)',
+            },
+          ]}
+        >
+          {/* Liquid glass background */}
+          <View style={styles.glassContainer}>
+            <BlurView
+              intensity={40}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFill}
+            />
+            <View
               style={[
-                styles.searchBar,
+                StyleSheet.absoluteFill,
                 {
-                  backgroundColor: isDark ? '#3A3A3C' : '#F5F1E8',
-                  borderColor: isDark ? '#48484A' : '#D3D5D7',
+                  backgroundColor: isDark
+                    ? 'rgba(30, 30, 32, 0.25)'
+                    : 'rgba(255, 255, 255, 0.2)',
                 },
               ]}
-            >
-              <Ionicons
-                name="search"
-                size={20}
-                color={isDark ? '#AEAEB2' : '#8A8D91'}
-              />
-              <Text
-                style={{ color: isDark ? '#AEAEB2' : '#8A8D91', fontSize: 15 }}
-              >
-                Where are you going?
-              </Text>
-            </TouchableOpacity>
+            />
+            {/* Top highlight edge */}
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 24,
+                right: 24,
+                height: 1,
+                backgroundColor: isDark
+                  ? 'rgba(255, 255, 255, 0.15)'
+                  : 'rgba(255, 255, 255, 0.8)',
+              }}
+            />
+          </View>
 
+          {/* Drag Handle */}
+          <View {...panResponder.panHandlers} style={styles.handleBar}>
+            <View
+              style={[
+                styles.handle,
+                {
+                  backgroundColor: isDark
+                    ? 'rgba(255, 255, 255, 0.25)'
+                    : 'rgba(0, 0, 0, 0.15)',
+                },
+              ]}
+            />
+          </View>
+          {/* Search Bar - pinned */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('SearchResults')}
+            style={[
+              styles.searchBar,
+              {
+                backgroundColor: isDark ? '#3A3A3C' : '#F5F1E8',
+                borderColor: isDark ? '#48484A' : '#D3D5D7',
+              },
+            ]}
+          >
+            <Ionicons
+              name="search"
+              size={20}
+              color={isDark ? '#AEAEB2' : '#8A8D91'}
+            />
+            <Text
+              style={{ color: isDark ? '#AEAEB2' : '#8A8D91', fontSize: 15 }}
+            >
+              Where are you going?
+            </Text>
+          </TouchableOpacity>
+
+          <ScrollView
+            ref={scrollRef}
+            scrollEnabled={scrollEnabled}
+            contentContainerStyle={styles.sheetContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
             {/* Header */}
             <View style={styles.headerRow}>
               <Text
@@ -372,13 +515,7 @@ export default function MapHomeScreen() {
                   { color: isDark ? '#F5F5F7' : '#4A4F55' },
                 ]}
               >
-                {loading ? (
-                  'Finding spots...'
-                ) : error ? (
-                  `${filteredSpots.length} spots (cached)`
-                ) : (
-                  `${filteredSpots.length} spots nearby`
-                )}
+                {`${filteredSpots.length} spots nearby`}
               </Text>
             </View>
 
@@ -445,7 +582,7 @@ export default function MapHomeScreen() {
             {/* Bottom padding for tab bar */}
             <View style={{ height: 100 }} />
           </ScrollView>
-        </View>
+        </Animated.View>
 
         {/* Crowdsource Prompt */}
         {crowdsourcePrompt && (
@@ -541,6 +678,13 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
+  marker: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
   topControls: {
     position: 'absolute',
     top: 60,
@@ -580,7 +724,6 @@ const styles = StyleSheet.create({
   fabContainer: {
     position: 'absolute',
     right: 16,
-    bottom: SCREEN_HEIGHT * 0.38,
     gap: 12,
   },
   fab: {
@@ -602,11 +745,20 @@ const styles = StyleSheet.create({
     right: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  glassContainer: {
+    ...StyleSheet.absoluteFillObject,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
   },
   handleBar: {
     alignItems: 'center',
@@ -630,7 +782,8 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingHorizontal: 16,
     borderWidth: 1,
-    marginBottom: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
   headerRow: {
     flexDirection: 'row',

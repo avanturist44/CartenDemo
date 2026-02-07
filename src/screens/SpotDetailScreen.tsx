@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Dimensions,
 } from 'react-native';
+import MapboxGL from '@rnmapbox/maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -74,27 +75,52 @@ export default function SpotDetailScreen() {
   return (
     <View style={[styles.flex, { backgroundColor: isDark ? '#1C1C1E' : '#F5F1E8' }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Hero */}
-        <View style={[styles.hero, {
-          backgroundColor: isDark ? '#2C2C2E' : '#E8DFD0',
-          borderBottomColor: isDark ? '#3A3A3C' : '#D3D5D7',
-        }]}>
+        {/* Hero - Map */}
+        <View style={styles.hero}>
+          <MapboxGL.MapView
+            style={StyleSheet.absoluteFill}
+            styleURL={isDark ? MapboxGL.StyleURL.Dark : MapboxGL.StyleURL.Street}
+            logoEnabled={false}
+            attributionEnabled={false}
+            compassEnabled={false}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            pitchEnabled={false}
+            rotateEnabled={false}
+          >
+            <MapboxGL.Camera
+              centerCoordinate={[-122.4025, 37.7899]}
+              zoomLevel={16}
+              animationMode="flyTo"
+              animationDuration={1000}
+            />
+            <MapboxGL.PointAnnotation
+              id="spot-marker"
+              coordinate={[-122.4025, 37.7899]}
+            >
+              <View style={styles.markerContainer}>
+                <View style={styles.marker}>
+                  <Ionicons name="car" size={16} color="#FFFFFF" />
+                </View>
+                <View style={styles.markerArrow} />
+              </View>
+            </MapboxGL.PointAnnotation>
+          </MapboxGL.MapView>
+
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={[styles.backBtn, {
-              backgroundColor: isDark ? 'rgba(44, 44, 46, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              backgroundColor: isDark ? 'rgba(44, 44, 46, 0.85)' : 'rgba(255, 255, 255, 0.85)',
               borderColor: isDark ? '#3A3A3C' : '#D3D5D7',
             }]}
           >
             <Ionicons name="arrow-back" size={20} color={isDark ? '#F5F5F7' : '#4A4F55'} />
           </TouchableOpacity>
 
-          <Ionicons name="location" size={64} color="#7FA98E" />
-
           {/* Quick info overlay */}
           <View style={[styles.quickInfo, {
-            backgroundColor: isDark ? 'rgba(44, 44, 46, 0.9)' : 'rgba(255, 255, 255, 0.9)',
-            borderColor: isDark ? '#3A3A3C' : '#D3D5D7',
+            backgroundColor: isDark ? 'rgba(44, 44, 46, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.6)',
           }]}>
             <View style={styles.quickInfoContent}>
               <Text style={[styles.spotName, { color: isDark ? '#F5F5F7' : '#4A4F55' }]}>{spotData.name}</Text>
@@ -264,7 +290,21 @@ const styles = StyleSheet.create({
   scrollContent: {},
   hero: {
     height: Dimensions.get('window').height * 0.35,
-    borderBottomWidth: 1, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  markerContainer: { alignItems: 'center' },
+  marker: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#7FA98E', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: '#FFFFFF',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 4, elevation: 5,
+  },
+  markerArrow: {
+    width: 0, height: 0,
+    borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 8,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent',
+    borderTopColor: '#FFFFFF', marginTop: -1,
   },
   backBtn: {
     position: 'absolute', top: 56, left: 16, width: 48, height: 48,

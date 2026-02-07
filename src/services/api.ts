@@ -45,13 +45,19 @@ export async function fetchParkingWithFallback(
   return null;
 }
 
-// Routing API
+// Routing API - tries local server first, falls back to Mapbox Directions API
 export async function fetchRouting(
   origin: { lat: number; lng: number },
   destination: { lat: number; lng: number },
 ): Promise<RoutingResponse> {
-  const url = API.routing(origin.lng, origin.lat, destination.lng, destination.lat);
-  return fetchWithError<RoutingResponse>(url);
+  try {
+    const url = API.routing(origin.lng, origin.lat, destination.lng, destination.lat);
+    return await fetchWithError<RoutingResponse>(url);
+  } catch {
+    // Fallback: call Mapbox Directions API directly
+    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${MAPBOX_TOKEN}`;
+    return fetchWithError<RoutingResponse>(url);
+  }
 }
 
 // Geocoding API (direct to Mapbox)

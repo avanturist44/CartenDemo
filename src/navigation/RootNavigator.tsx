@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useDarkMode } from '../context/DarkModeContext';
@@ -19,6 +20,27 @@ import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import MoreSettingsScreen from '../screens/MoreSettingsScreen';
 
 import type { RootTabParamList, MapStackParamList, ProfileStackParamList } from './types';
+
+const defaultTabBarStyle = (isDark: boolean) => ({
+  position: 'absolute' as const,
+  bottom: 8,
+  left: 48,
+  right: 48,
+  height: 64,
+  borderRadius: 32,
+  borderTopWidth: 0,
+  backgroundColor: 'transparent',
+  shadowColor: isDark ? '#000' : '#8A8D91',
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: isDark ? 0.4 : 0.2,
+  shadowRadius: 24,
+  elevation: 12,
+  borderWidth: 1,
+  borderColor: isDark
+    ? 'rgba(255, 255, 255, 0.12)'
+    : 'rgba(255, 255, 255, 0.6)',
+  paddingBottom: 0,
+});
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const MapStack = createNativeStackNavigator<MapStackParamList>();
@@ -51,11 +73,37 @@ function ProfileStackNavigator() {
 function TabBarBackground() {
   const { isDark } = useDarkMode();
   return (
-    <BlurView
-      intensity={90}
-      tint={isDark ? 'dark' : 'light'}
-      style={StyleSheet.absoluteFill}
-    />
+    <View style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: 'hidden' }]}>
+      <BlurView
+        intensity={60}
+        tint={isDark ? 'dark' : 'light'}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Tinted glass overlay */}
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: isDark
+              ? 'rgba(30, 30, 32, 0.45)'
+              : 'rgba(255, 255, 255, 0.35)',
+          },
+        ]}
+      />
+      {/* Top highlight edge */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 12,
+          right: 12,
+          height: 1,
+          backgroundColor: isDark
+            ? 'rgba(255, 255, 255, 0.15)'
+            : 'rgba(255, 255, 255, 0.8)',
+        }}
+      />
+    </View>
   );
 }
 
@@ -68,26 +116,7 @@ export default function RootNavigator() {
         headerShown: false,
         tabBarActiveTintColor: '#7FA98E',
         tabBarInactiveTintColor: isDark ? '#AEAEB2' : '#8A8D91',
-        tabBarStyle: {
-          position: 'absolute',
-          bottom: 16,
-          left: 16,
-          right: 16,
-          height: 64,
-          borderRadius: 32,
-          borderTopWidth: 0,
-          backgroundColor: isDark
-            ? 'rgba(44, 44, 46, 0.95)'
-            : 'rgba(255, 255, 255, 0.95)',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.15,
-          shadowRadius: 16,
-          elevation: 8,
-          borderWidth: 1,
-          borderColor: isDark ? '#3A3A3C' : '#D3D5D7',
-          paddingBottom: 0,
-        },
+        tabBarStyle: defaultTabBarStyle(isDark),
         tabBarBackground: () => <TabBarBackground />,
         tabBarLabelStyle: {
           fontSize: 11,
@@ -102,11 +131,18 @@ export default function RootNavigator() {
       <Tab.Screen
         name="MapTab"
         component={MapStackNavigator}
-        options={{
-          tabBarLabel: 'Map',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
-          ),
+        options={({ route }) => {
+          const routeName = getFocusedRouteNameFromRoute(route) ?? 'MapHome';
+          return {
+            tabBarLabel: 'Map',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="map" size={size} color={color} />
+            ),
+            tabBarStyle:
+              routeName === 'MapHome'
+                ? defaultTabBarStyle(isDark)
+                : { display: 'none' as const },
+          };
         }}
       />
       <Tab.Screen
@@ -122,11 +158,18 @@ export default function RootNavigator() {
       <Tab.Screen
         name="ProfileTab"
         component={ProfileStackNavigator}
-        options={{
-          tabBarLabel: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
-          ),
+        options={({ route }) => {
+          const routeName = getFocusedRouteNameFromRoute(route) ?? 'ProfileMain';
+          return {
+            tabBarLabel: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person" size={size} color={color} />
+            ),
+            tabBarStyle:
+              routeName === 'ProfileMain'
+                ? defaultTabBarStyle(isDark)
+                : { display: 'none' as const },
+          };
         }}
       />
     </Tab.Navigator>
