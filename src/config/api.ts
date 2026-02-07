@@ -30,4 +30,22 @@ export const API = {
   geocode(query: string): string {
     return `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=5`;
   },
+
+  spotDetection(lat: number, lng: number, radius: number = 500): string {
+    return `${API_BASE_URL}/spot-detection?lat=${lat}&lng=${lng}&radius=${radius}`;
+  },
+
+  spotIntelligence(lat: number, lng: number): string {
+    return `${API_BASE_URL}/spot-intelligence?lat=${lat}&lng=${lng}`;
+  },
+
+  rerouteCheck(
+    originLat: number,
+    originLng: number,
+    destinationLat: number,
+    destinationLng: number,
+    currentConfidence: number,
+  ): string {
+    return `${API_BASE_URL}/reroute-check?originlat=${originLat}&originlng=${originLng}&destinationlat=${destinationLat}&destinationlng=${destinationLng}&currentConfidence=${currentConfidence}`;
+  },
 };
